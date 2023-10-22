@@ -1,10 +1,19 @@
+use bstr::{ByteSlice, Utf8Error};
 use color_eyre::{eyre::Context, Report, Result};
-use std::{fmt::Display, path::PathBuf, str::FromStr};
+use std::{fmt::Display, num::NonZeroUsize, path::PathBuf, str::FromStr};
 
 #[derive(Clone)]
 pub struct Spanned<T> {
     pub span: Span,
     pub content: T,
+}
+
+impl<T> std::ops::Deref for Spanned<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.content
+    }
 }
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
@@ -17,11 +26,11 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Span {
-    file: PathBuf,
-    line_start: usize,
-    line_end: usize,
-    col_start: usize,
-    col_end: usize,
+    pub file: PathBuf,
+    pub line_start: NonZeroUsize,
+    pub line_end: NonZeroUsize,
+    pub col_start: NonZeroUsize,
+    pub col_end: NonZeroUsize,
 }
 
 impl std::fmt::Debug for Span {
@@ -33,10 +42,10 @@ impl Default for Span {
     fn default() -> Self {
         Self {
             file: PathBuf::new(),
-            line_start: 0,
-            line_end: 0,
-            col_start: 0,
-            col_end: 0,
+            line_start: NonZeroUsize::MAX,
+            line_end: NonZeroUsize::MAX,
+            col_start: NonZeroUsize::MAX,
+            col_end: NonZeroUsize::MAX,
         }
     }
 }
@@ -44,6 +53,29 @@ impl Default for Span {
 impl Span {
     pub fn is_dummy(&self) -> bool {
         self == &Self::default()
+    }
+    pub fn dec_col_end(mut self, amount: usize) -> Self {
+        self.col_end = NonZeroUsize::new(self.col_end.get() - amount).unwrap();
+        self
+    }
+    pub fn inc_col_start(mut self, amount: usize) -> Self {
+        self.col_start = self.col_end.checked_add(amount).unwrap();
+        self
+    }
+    pub fn shrink_to_end(self) -> Span {
+        Self {
+            line_start: self.line_end,
+            col_start: self.col_end,
+            ..self
+        }
+    }
+
+    pub fn shrink_to_start(self) -> Span {
+        Self {
+            line_end: self.line_start,
+            col_end: self.col_start,
+            ..self
+        }
     }
 }
 
@@ -67,11 +99,12 @@ impl Display for Span {
 impl Spanned<&str> {
     pub fn split_once(&self, delimiter: &str) -> Option<(Self, Self)> {
         let (a, b) = self.content.split_once(delimiter)?;
-        let mut span = self.span.clone();
-        span.col_end -= b.chars().count();
+        let span = self.span.clone().dec_col_end(b.chars().count());
         let a = Spanned { span, content: a };
-        let mut span = self.span.clone();
-        span.col_start += a.content.chars().count() + 1;
+        let span = self
+            .span
+            .clone()
+            .inc_col_start(a.content.chars().count() + 1);
         let b = Spanned { span, content: b };
         Some((a, b))
     }
@@ -83,11 +116,12 @@ impl Spanned<&str> {
 
     pub fn split_at(&self, pos: usize) -> (Self, Self) {
         let (a, b) = self.content.split_at(pos);
-        let mut span = self.span.clone();
-        span.col_end -= b.chars().count();
+        let span = self.span.clone().dec_col_end(b.chars().count());
         let a = Spanned { span, content: a };
-        let mut span = self.span.clone();
-        span.col_start += a.content.chars().count() + 1;
+        let span = self
+            .span
+            .clone()
+            .inc_col_start(a.content.chars().count() + 1);
         let b = Spanned { span, content: b };
         (a, b)
     }
@@ -95,8 +129,7 @@ impl Spanned<&str> {
     pub fn trim_end(&self) -> Self {
         let content = self.content.trim_end();
         let n = self.content[content.len()..].chars().count();
-        let mut span = self.span.clone();
-        span.col_end -= n;
+        let span = self.span.clone().dec_col_end(n);
         Self { content, span }
     }
 
@@ -109,9 +142,14 @@ impl Spanned<&str> {
         let n = self.content[..(self.content.len() - content.len())]
             .chars()
             .count();
-        let mut span = self.span.clone();
-        span.col_start += n;
+        let span = self.span.clone().inc_col_start(n);
         Some(Self { content, span })
+    }
+
+    pub fn strip_suffix(&self, suffix: &str) -> Option<Self> {
+        let content = self.content.strip_suffix(suffix)?;
+        let span = self.span.clone().dec_col_end(suffix.chars().count());
+        Some(Self { span, content })
     }
 
     pub fn trim_start(&self) -> Self {
@@ -119,8 +157,7 @@ impl Spanned<&str> {
         let n = self.content[..(self.content.len() - content.len())]
             .chars()
             .count();
-        let mut span = self.span.clone();
-        span.col_start += n;
+        let span = self.span.clone().inc_col_start(n);
         Self { content, span }
     }
 
@@ -148,7 +185,43 @@ impl Spanned<&str> {
     }
 }
 
+impl<'a> Spanned<&'a [u8]> {
+    pub fn strip_prefix(&self, prefix: &[u8]) -> Option<Self> {
+        let content = self.content.strip_prefix(prefix)?;
+        let span = self.span.clone().inc_col_start(prefix.chars().count());
+        Some(Self { span, content })
+    }
+
+    pub fn split_once_str(&self, splitter: &str) -> Option<(Self, Self)> {
+        let (a, b) = self.content.split_once_str(splitter)?;
+        Some((
+            Self {
+                content: a,
+                span: self.span.clone().inc_col_start(a.chars().count()),
+            },
+            Self {
+                content: b,
+                span: self
+                    .span
+                    .clone()
+                    .inc_col_start(a.chars().count() + splitter.chars().count()),
+            },
+        ))
+    }
+
+    pub fn to_str(self) -> Result<Spanned<&'a str>, Spanned<Utf8Error>> {
+        let span = self.span;
+        match self.content.to_str() {
+            Ok(content) => Ok(Spanned { content, span }),
+            Err(err) => Err(Spanned { content: err, span }),
+        }
+    }
+}
+
 impl<T> Spanned<T> {
+    pub fn new(content: T, span: Span) -> Self {
+        Self { content, span }
+    }
     pub fn map<U>(self, f: impl FnOnce(T) -> U) -> Spanned<U> {
         let Spanned { content, span } = self;
         let content = f(content);
@@ -162,6 +235,10 @@ impl<T> Spanned<T> {
         }
     }
 
+    pub fn span(&self) -> Span {
+        self.span.clone()
+    }
+
     pub fn as_ref<U: ?Sized>(&self) -> Spanned<&U>
     where
         T: AsRef<U>,
@@ -171,6 +248,10 @@ impl<T> Spanned<T> {
             content: self.content.as_ref(),
         }
     }
+
+    pub fn line(&self) -> NonZeroUsize {
+        self.span.line_start
+    }
 }
 
 impl Spanned<String> {
@@ -178,12 +259,17 @@ impl Spanned<String> {
         let path = path.into();
         let path_str = path.display().to_string();
         let content = std::fs::read_to_string(&path).with_context(|| path_str)?;
+        let mut len = 0;
+        let lines = content
+            .lines()
+            .inspect(|line| len = line.chars().count())
+            .count();
         let span = Span {
             file: path,
-            line_start: 1,
-            line_end: content.lines().count() + 1,
-            col_start: 1,
-            col_end: 0,
+            line_start: NonZeroUsize::new(1).unwrap(),
+            line_end: NonZeroUsize::new(lines).unwrap(),
+            col_start: NonZeroUsize::new(1).unwrap(),
+            col_end: NonZeroUsize::new(len + 1).unwrap(),
         };
         Ok(Self { span, content })
     }
@@ -192,12 +278,12 @@ impl Spanned<String> {
 impl Spanned<&str> {
     /// Split up the string into lines
     pub fn lines<'a>(&'a self) -> impl Iterator<Item = Spanned<&'a str>> {
-        assert_eq!(self.span.col_start, 1);
+        assert_eq!(self.span.col_start.get(), 1);
         self.content.lines().enumerate().map(move |(i, content)| {
             let mut span = self.span.clone();
-            span.line_start += i;
+            span.line_start = span.line_start.checked_add(i).unwrap();
             span.line_end = span.line_start;
-            span.col_end = content.chars().count();
+            span.col_end = NonZeroUsize::new(content.chars().count() + 1).unwrap();
             Spanned { content, span }
         })
     }
