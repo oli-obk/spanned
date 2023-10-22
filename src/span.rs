@@ -59,7 +59,7 @@ impl Span {
         self
     }
     pub fn inc_col_start(mut self, amount: usize) -> Self {
-        self.col_start = self.col_end.checked_add(amount).unwrap();
+        self.col_start = self.col_start.checked_add(amount).unwrap();
         self
     }
     pub fn shrink_to_end(self) -> Span {
