@@ -62,6 +62,12 @@ impl Span {
         self.col_start = self.col_start.checked_add(amount).unwrap();
         self
     }
+    pub fn set_col_end_relative_to_start(mut self, amount: usize) -> Self {
+        let new = self.col_start.checked_add(amount).unwrap();
+        assert!(new <= self.col_end);
+        self.col_end = new;
+        self
+    }
     pub fn shrink_to_end(self) -> Span {
         Self {
             line_start: self.line_end,
@@ -116,12 +122,10 @@ impl Spanned<&str> {
 
     pub fn split_at(&self, pos: usize) -> (Self, Self) {
         let (a, b) = self.content.split_at(pos);
-        let span = self.span.clone().dec_col_end(b.chars().count());
+        let n = a.chars().count();
+        let span = self.span.clone().set_col_end_relative_to_start(n);
         let a = Spanned { span, content: a };
-        let span = self
-            .span
-            .clone()
-            .inc_col_start(a.content.chars().count() + 1);
+        let span = self.span.clone().inc_col_start(n);
         let b = Spanned { span, content: b };
         (a, b)
     }
@@ -139,10 +143,7 @@ impl Spanned<&str> {
 
     pub fn strip_prefix(&self, prefix: &str) -> Option<Self> {
         let content = self.content.strip_prefix(prefix)?;
-        let n = self.content[..(self.content.len() - content.len())]
-            .chars()
-            .count();
-        let span = self.span.clone().inc_col_start(n);
+        let span = self.span.clone().inc_col_start(prefix.chars().count());
         Some(Self { content, span })
     }
 
@@ -197,7 +198,10 @@ impl<'a> Spanned<&'a [u8]> {
         Some((
             Self {
                 content: a,
-                span: self.span.clone().inc_col_start(a.chars().count()),
+                span: self
+                    .span
+                    .clone()
+                    .set_col_end_relative_to_start(a.chars().count()),
             },
             Self {
                 content: b,
