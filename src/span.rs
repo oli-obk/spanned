@@ -54,17 +54,20 @@ impl Span {
     pub fn is_dummy(&self) -> bool {
         self == &Self::default()
     }
+    #[track_caller]
     pub fn dec_col_end(mut self, amount: usize) -> Self {
         self.col_end = NonZeroUsize::new(self.col_end.get() - amount).unwrap();
         self
     }
+    #[track_caller]
     pub fn inc_col_start(mut self, amount: usize) -> Self {
         self.col_start = self.col_start.checked_add(amount).unwrap();
         self
     }
+    #[track_caller]
     pub fn set_col_end_relative_to_start(mut self, amount: usize) -> Self {
         let new = self.col_start.checked_add(amount).unwrap();
-        assert!(new <= self.col_end);
+        assert!(new <= self.col_end, "{self} new end: {new}");
         self.col_end = new;
         self
     }
@@ -184,6 +187,12 @@ impl Spanned<&str> {
             content,
         })
     }
+
+    pub fn chars(&self) -> impl Iterator<Item = Spanned<char>> + '_ {
+        self.char_indices().map(move |(i, c)| {
+            Spanned::new(c, self.span.clone().inc_col_start(i).shrink_to_start())
+        })
+    }
 }
 
 impl<'a> Spanned<&'a [u8]> {
@@ -279,16 +288,20 @@ impl Spanned<String> {
     }
 }
 
-impl Spanned<&str> {
+impl<T: AsRef<str>> Spanned<T> {
     /// Split up the string into lines
     pub fn lines<'a>(&'a self) -> impl Iterator<Item = Spanned<&'a str>> {
         assert_eq!(self.span.col_start.get(), 1);
-        self.content.lines().enumerate().map(move |(i, content)| {
-            let mut span = self.span.clone();
-            span.line_start = span.line_start.checked_add(i).unwrap();
-            span.line_end = span.line_start;
-            span.col_end = NonZeroUsize::new(content.chars().count() + 1).unwrap();
-            Spanned { content, span }
-        })
+        self.content
+            .as_ref()
+            .lines()
+            .enumerate()
+            .map(move |(i, content)| {
+                let mut span = self.span.clone();
+                span.line_start = span.line_start.checked_add(i).unwrap();
+                span.line_end = span.line_start;
+                span.col_end = NonZeroUsize::new(content.chars().count() + 1).unwrap();
+                Spanned { content, span }
+            })
     }
 }

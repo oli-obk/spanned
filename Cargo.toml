@@ -1,6 +1,6 @@
 [package]
 name = "spanned"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "string processing with file/line/col information and the regular rust `str` API"
 license = "MIT OR Apache-2.0"
