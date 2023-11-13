@@ -189,7 +189,7 @@ impl Spanned<&str> {
     }
 
     pub fn chars(&self) -> impl Iterator<Item = Spanned<char>> + '_ {
-        self.char_indices().map(move |(i, c)| {
+        self.content.chars().enumerate().map(move |(i, c)| {
             Spanned::new(c, self.span.clone().inc_col_start(i).shrink_to_start())
         })
     }
