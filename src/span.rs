@@ -290,7 +290,7 @@ impl Spanned<String> {
 
 impl<T: AsRef<str>> Spanned<T> {
     /// Split up the string into lines
-    pub fn lines<'a>(&'a self) -> impl Iterator<Item = Spanned<&'a str>> {
+    pub fn lines(&self) -> impl Iterator<Item = Spanned<&str>> {
         assert_eq!(self.span.col_start.get(), 1);
         self.content
             .as_ref()
