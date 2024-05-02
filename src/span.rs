@@ -108,12 +108,9 @@ impl Display for Span {
 impl Spanned<&str> {
     pub fn split_once(&self, delimiter: &str) -> Option<(Self, Self)> {
         let (a, b) = self.content.split_once(delimiter)?;
-        let span = self.span.clone().dec_col_end(b.chars().count());
+        let span = self.span.clone().dec_col_end(b.len());
         let a = Spanned { span, content: a };
-        let span = self
-            .span
-            .clone()
-            .inc_col_start(a.content.chars().count() + 1);
+        let span = self.span.clone().inc_col_start(a.len() + 1);
         let b = Spanned { span, content: b };
         Some((a, b))
     }
@@ -125,7 +122,7 @@ impl Spanned<&str> {
 
     pub fn split_at(&self, pos: usize) -> (Self, Self) {
         let (a, b) = self.content.split_at(pos);
-        let n = a.chars().count();
+        let n = a.len();
         let span = self.span.clone().set_col_end_relative_to_start(n);
         let a = Spanned { span, content: a };
         let span = self.span.clone().inc_col_start(n);
@@ -135,7 +132,7 @@ impl Spanned<&str> {
 
     pub fn trim_end(&self) -> Self {
         let content = self.content.trim_end();
-        let n = self.content[content.len()..].chars().count();
+        let n = self.content[content.len()..].len();
         let span = self.span.clone().dec_col_end(n);
         Self { content, span }
     }
@@ -146,21 +143,19 @@ impl Spanned<&str> {
 
     pub fn strip_prefix(&self, prefix: &str) -> Option<Self> {
         let content = self.content.strip_prefix(prefix)?;
-        let span = self.span.clone().inc_col_start(prefix.chars().count());
+        let span = self.span.clone().inc_col_start(prefix.len());
         Some(Self { content, span })
     }
 
     pub fn strip_suffix(&self, suffix: &str) -> Option<Self> {
         let content = self.content.strip_suffix(suffix)?;
-        let span = self.span.clone().dec_col_end(suffix.chars().count());
+        let span = self.span.clone().dec_col_end(suffix.len());
         Some(Self { span, content })
     }
 
     pub fn trim_start(&self) -> Self {
         let content = self.content.trim_start();
-        let n = self.content[..(self.content.len() - content.len())]
-            .chars()
-            .count();
+        let n = self.content[..(self.content.len() - content.len())].len();
         let span = self.span.clone().inc_col_start(n);
         Self { content, span }
     }
@@ -198,7 +193,7 @@ impl Spanned<&str> {
 impl<'a> Spanned<&'a [u8]> {
     pub fn strip_prefix(&self, prefix: &[u8]) -> Option<Self> {
         let content = self.content.strip_prefix(prefix)?;
-        let span = self.span.clone().inc_col_start(prefix.chars().count());
+        let span = self.span.clone().inc_col_start(prefix.len());
         Some(Self { span, content })
     }
 
@@ -207,17 +202,11 @@ impl<'a> Spanned<&'a [u8]> {
         Some((
             Self {
                 content: a,
-                span: self
-                    .span
-                    .clone()
-                    .set_col_end_relative_to_start(a.chars().count()),
+                span: self.span.clone().set_col_end_relative_to_start(a.len()),
             },
             Self {
                 content: b,
-                span: self
-                    .span
-                    .clone()
-                    .inc_col_start(a.chars().count() + splitter.chars().count()),
+                span: self.span.clone().inc_col_start(a.len() + splitter.len()),
             },
         ))
     }
@@ -273,10 +262,7 @@ impl Spanned<String> {
         let path_str = path.display().to_string();
         let content = std::fs::read_to_string(&path).with_context(|| path_str)?;
         let mut len = 0;
-        let lines = content
-            .lines()
-            .inspect(|line| len = line.chars().count())
-            .count();
+        let lines = content.lines().inspect(|line| len = line.len()).count();
         let span = Span {
             file: path,
             line_start: NonZeroUsize::new(1).unwrap(),
@@ -300,7 +286,7 @@ impl<T: AsRef<str>> Spanned<T> {
                 let mut span = self.span.clone();
                 span.line_start = span.line_start.checked_add(i).unwrap();
                 span.line_end = span.line_start;
-                span.col_end = NonZeroUsize::new(content.chars().count() + 1).unwrap();
+                span.col_end = NonZeroUsize::new(content.len() + 1).unwrap();
                 Spanned { content, span }
             })
     }
