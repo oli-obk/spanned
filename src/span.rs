@@ -2,7 +2,7 @@ use bstr::{ByteSlice, Utf8Error};
 use color_eyre::{eyre::Context, Report, Result};
 use std::{fmt::Display, num::NonZeroUsize, path::PathBuf, str::FromStr};
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Spanned<T> {
     pub span: Span,
     pub content: T,
