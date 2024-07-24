@@ -1,6 +1,6 @@
 use bstr::{ByteSlice, Utf8Error};
 use color_eyre::{eyre::Context, Report, Result};
-use std::{fmt::Display, num::NonZeroUsize, path::PathBuf, str::FromStr};
+use std::{fmt::Display, ops::Range, path::PathBuf, str::FromStr};
 
 #[derive(Clone, Default)]
 pub struct Spanned<T> {
@@ -27,10 +27,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
 #[derive(Clone, PartialEq, Eq)]
 pub struct Span {
     pub file: PathBuf,
-    pub line_start: NonZeroUsize,
-    pub line_end: NonZeroUsize,
-    pub col_start: NonZeroUsize,
-    pub col_end: NonZeroUsize,
+    pub bytes: Range<usize>,
 }
 
 impl std::fmt::Debug for Span {
@@ -42,10 +39,7 @@ impl Default for Span {
     fn default() -> Self {
         Self {
             file: PathBuf::new(),
-            line_start: NonZeroUsize::MAX,
-            line_end: NonZeroUsize::MAX,
-            col_start: NonZeroUsize::MAX,
-            col_end: NonZeroUsize::MAX,
+            bytes: usize::MAX..usize::MAX,
         }
     }
 }
@@ -56,35 +50,33 @@ impl Span {
     }
     #[track_caller]
     pub fn dec_col_end(mut self, amount: usize) -> Self {
-        self.col_end = NonZeroUsize::new(self.col_end.get() - amount).unwrap();
+        let new = self.bytes.end - amount;
+        assert!(self.bytes.start <= new, "{self} new end: {new}");
+        self.bytes.end = new;
         self
     }
     #[track_caller]
     pub fn inc_col_start(mut self, amount: usize) -> Self {
-        self.col_start = self.col_start.checked_add(amount).unwrap();
+        let new = self.bytes.start + amount;
+        assert!(new <= self.bytes.end, "{self} new end: {new}");
+        self.bytes.start = new;
         self
     }
     #[track_caller]
     pub fn set_col_end_relative_to_start(mut self, amount: usize) -> Self {
-        let new = self.col_start.checked_add(amount).unwrap();
-        assert!(new <= self.col_end, "{self} new end: {new}");
-        self.col_end = new;
+        let new = self.bytes.start + amount;
+        assert!(new <= self.bytes.end, "{self} new end: {new}");
+        self.bytes.end = new;
         self
     }
-    pub fn shrink_to_end(self) -> Span {
-        Self {
-            line_start: self.line_end,
-            col_start: self.col_end,
-            ..self
-        }
+    pub fn shrink_to_end(mut self) -> Span {
+        self.bytes.start = self.bytes.end;
+        self
     }
 
-    pub fn shrink_to_start(self) -> Span {
-        Self {
-            line_end: self.line_start,
-            col_end: self.col_start,
-            ..self
-        }
+    pub fn shrink_to_start(mut self) -> Span {
+        self.bytes.end = self.bytes.start;
+        self
     }
 }
 
@@ -93,15 +85,9 @@ impl Display for Span {
         if self.is_dummy() {
             return write!(f, "DUMMY_SPAN");
         }
-        let Self {
-            file,
-            line_start,
-            line_end,
-            col_start,
-            col_end,
-        } = self;
+        let Self { file, bytes } = self;
         let file = file.display();
-        write!(f, "{file}:{line_start}:{col_start} {line_end}:{col_end}")
+        write!(f, "{file}:{}:{}", bytes.start, bytes.end)
     }
 }
 
@@ -250,44 +236,36 @@ impl<T> Spanned<T> {
             content: self.content.as_ref(),
         }
     }
-
-    pub fn line(&self) -> NonZeroUsize {
-        self.span.line_start
-    }
 }
 
-impl Spanned<String> {
+impl Spanned<Vec<u8>> {
     pub fn read_from_file(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
         let path_str = path.display().to_string();
-        let content = std::fs::read_to_string(&path).with_context(|| path_str)?;
-        let mut len = 0;
-        let lines = content.lines().inspect(|line| len = line.len()).count();
+        let content = std::fs::read(&path).with_context(|| path_str)?;
         let span = Span {
             file: path,
-            line_start: NonZeroUsize::new(1).unwrap(),
-            line_end: NonZeroUsize::new(lines).unwrap(),
-            col_start: NonZeroUsize::new(1).unwrap(),
-            col_end: NonZeroUsize::new(len + 1).unwrap(),
+            bytes: 0..content.len(),
         };
         Ok(Self { span, content })
     }
 }
 
-impl<T: AsRef<str>> Spanned<T> {
+impl<T: AsRef<[u8]>> Spanned<T> {
     /// Split up the string into lines
-    pub fn lines(&self) -> impl Iterator<Item = Spanned<&str>> {
-        assert_eq!(self.span.col_start.get(), 1);
-        self.content
-            .as_ref()
-            .lines()
-            .enumerate()
-            .map(move |(i, content)| {
-                let mut span = self.span.clone();
-                span.line_start = span.line_start.checked_add(i).unwrap();
-                span.line_end = span.line_start;
-                span.col_end = NonZeroUsize::new(content.len() + 1).unwrap();
-                Spanned { content, span }
-            })
+    pub fn lines(&self) -> impl Iterator<Item = Spanned<&[u8]>> {
+        let content = self.content.as_ref();
+        content.lines().map(move |line| {
+            let span = self.span.clone();
+            // SAFETY: `line` is a substr of `content`, so the `offset_from` requirements are
+            // trivially satisfied.
+            let amount = unsafe { line.as_ptr().offset_from(content.as_ptr()) };
+            let mut span = span.inc_col_start(amount.try_into().unwrap());
+            span.bytes.end = span.bytes.start + line.len();
+            Spanned {
+                content: line,
+                span,
+            }
+        })
     }
 }
