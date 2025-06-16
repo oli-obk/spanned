@@ -238,6 +238,15 @@ impl<T> Spanned<T> {
     }
 }
 
+impl<T, E> Spanned<Result<T, E>> {
+    pub fn transpose(self) -> Result<Spanned<T>, E> {
+        Ok(Spanned {
+            span: self.span,
+            content: self.content?,
+        })
+    }
+}
+
 impl Spanned<Vec<u8>> {
     pub fn read_from_file(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
@@ -248,6 +257,14 @@ impl Spanned<Vec<u8>> {
             bytes: 0..content.len(),
         };
         Ok(Self { span, content })
+    }
+}
+
+impl Spanned<String> {
+    pub fn read_from_file(path: impl Into<PathBuf>) -> Result<Self> {
+        Ok(Spanned::<Vec<u8>>::read_from_file(path)?
+            .map(String::from_utf8)
+            .transpose()?)
     }
 }
 

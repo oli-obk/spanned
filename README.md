@@ -6,7 +6,7 @@ If you are missing any you need, please open issues or PRs.
 The basic usage is to read from a file and then use the methods to modify it:
 
 ```rust
-let file = Spanned<String>::read_from_file(path)?;
+let file = Spanned::<String>::read_from_file(path)?;
 for line in file.lines() {
     if let Some(rest) = line.strip_prefix("cake:") {
         println!("found a cake at {}: {}", rest.span.line_start, *rest);
