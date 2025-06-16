@@ -1,11 +1,28 @@
 use bstr::{ByteSlice, Utf8Error};
-use color_eyre::{eyre::Context, Report, Result};
-use std::{fmt::Display, ops::Range, path::PathBuf, str::FromStr};
+use std::{
+    fmt::{Debug, Display},
+    io,
+    ops::Range,
+    path::PathBuf,
+    str::FromStr,
+};
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Spanned<T> {
     pub span: Span,
     pub content: T,
+}
+
+impl PartialEq<&str> for Spanned<&str> {
+    fn eq(&self, other: &&str) -> bool {
+        self.content.eq(*other)
+    }
+}
+
+impl PartialEq<&str> for Spanned<String> {
+    fn eq(&self, other: &&str) -> bool {
+        self.content.eq(*other)
+    }
 }
 
 impl<T> std::ops::Deref for Spanned<T> {
@@ -30,12 +47,36 @@ pub struct Span {
     pub bytes: Range<usize>,
 }
 
+impl Ord for Span {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.file
+            .cmp(&other.file)
+            .then_with(|| self.bytes.start.cmp(&other.bytes.start))
+            .then_with(|| self.bytes.end.cmp(&other.bytes.end))
+    }
+}
+
+impl PartialOrd for Span {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match self.file.partial_cmp(&other.file) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        match self.bytes.start.partial_cmp(&other.bytes.start) {
+            Some(core::cmp::Ordering::Equal) => {}
+            ord => return ord,
+        }
+        self.bytes.end.partial_cmp(&other.bytes.end)
+    }
+}
+
 impl std::fmt::Debug for Span {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self)
     }
 }
 impl Default for Span {
+    #[track_caller]
     fn default() -> Self {
         Self {
             file: PathBuf::new(),
@@ -45,8 +86,26 @@ impl Default for Span {
 }
 
 impl Span {
+    /// Produce a span pointing into this Rust source file instead of into the file you are processing
+    #[track_caller]
+    pub fn here() -> Self {
+        let info = std::panic::Location::caller();
+        let file = Spanned::read_from_file(info.file()).transpose().unwrap();
+        let mut line = file.lines().nth(info.line() as usize - 1).unwrap();
+        let col = line
+            .clone()
+            .to_str()
+            .unwrap()
+            .chars()
+            .nth(info.column() as usize - 1)
+            .expect("char not found")
+            .span;
+        line.span.bytes.start = col.bytes.start;
+        line.span
+    }
+
     pub fn is_dummy(&self) -> bool {
-        self == &Self::default()
+        self.bytes.start == usize::MAX && self.bytes.end == usize::MAX
     }
     #[track_caller]
     pub fn dec_col_end(mut self, amount: usize) -> Self {
@@ -82,12 +141,12 @@ impl Span {
 
 impl Display for Span {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.is_dummy() {
+        if self.file == PathBuf::new() {
             return write!(f, "DUMMY_SPAN");
         }
         let Self { file, bytes } = self;
         let file = file.display();
-        write!(f, "{file}:{}:{}", bytes.start, bytes.end)
+        write!(f, "{file}[{}..{}]", bytes.start, bytes.end)
     }
 }
 
@@ -146,6 +205,13 @@ impl Spanned<&str> {
         Self { content, span }
     }
 
+    pub fn trim_start_matches(&self, c: char) -> Self {
+        let content = self.content.trim_start_matches(c);
+        let n = self.content[..(self.content.len() - content.len())].len();
+        let span = self.span.clone().inc_col_start(n);
+        Self { content, span }
+    }
+
     pub fn trim(&self) -> Self {
         self.trim_start().trim_end()
     }
@@ -154,25 +220,39 @@ impl Spanned<&str> {
         self.content.starts_with(pat)
     }
 
-    pub fn parse<T: FromStr>(self) -> Result<Spanned<T>>
-    where
-        T::Err: Into<Report>,
-    {
-        let content = self
-            .content
-            .parse()
-            .map_err(Into::into)
-            .with_context(|| self.span.clone())?;
-        Ok(Spanned {
-            span: self.span,
-            content,
+    pub fn chars(&self) -> impl Iterator<Item = Spanned<char>> + '_ {
+        self.content.char_indices().map(move |(i, c)| {
+            Spanned::new(c, self.span.clone().inc_col_start(i).shrink_to_start())
         })
     }
 
-    pub fn chars(&self) -> impl Iterator<Item = Spanned<char>> + '_ {
-        self.content.chars().enumerate().map(move |(i, c)| {
-            Spanned::new(c, self.span.clone().inc_col_start(i).shrink_to_start())
-        })
+    pub fn split(&self, needle: char) -> impl Iterator<Item = Spanned<&str>> + Clone + '_ {
+        let mut start = 0;
+        self.content
+            .char_indices()
+            .chain([(self.content.len(), needle)])
+            .filter_map(move |(i, c)| {
+                if c == needle {
+                    let content = &self.content[start..i];
+                    let span = self
+                        .span
+                        .clone()
+                        .inc_col_start(start)
+                        .set_col_end_relative_to_start(content.len());
+                    start = i + 1;
+
+                    Some(Spanned::new(content, span))
+                } else {
+                    None
+                }
+            })
+    }
+
+    pub fn to_string(&self) -> Spanned<String> {
+        Spanned {
+            span: self.span.clone(),
+            content: self.content.to_string(),
+        }
     }
 }
 
@@ -206,6 +286,31 @@ impl<'a> Spanned<&'a [u8]> {
     }
 }
 
+impl<T: Display> Spanned<T> {
+    pub fn render(&self) -> String {
+        let file = Spanned::read_str_from_file(&self.span.file)
+            .transpose()
+            .unwrap();
+        let (l, line) = file
+            .lines()
+            .enumerate()
+            .find(|(_, l)| l.span.bytes.contains(&self.span.bytes.start))
+            .unwrap();
+        let line = line.to_str().unwrap();
+        let c = line
+            .chars()
+            .position(|c| c.span.bytes.start == self.span.bytes.start)
+            .unwrap();
+        format!(
+            "{}:{}:{}: {}",
+            self.span.file.display(),
+            l + 1,
+            c + 1,
+            self.content
+        )
+    }
+}
+
 impl<T> Spanned<T> {
     pub fn new(content: T, span: Span) -> Self {
         Self { content, span }
@@ -214,6 +319,14 @@ impl<T> Spanned<T> {
         let Spanned { content, span } = self;
         let content = f(content);
         Spanned { content, span }
+    }
+
+    #[track_caller]
+    pub fn here(content: T) -> Self {
+        Self {
+            span: Span::here(),
+            content,
+        }
     }
 
     pub fn dummy(content: T) -> Self {
@@ -239,32 +352,43 @@ impl<T> Spanned<T> {
 }
 
 impl<T, E> Spanned<Result<T, E>> {
-    pub fn transpose(self) -> Result<Spanned<T>, E> {
-        Ok(Spanned {
-            span: self.span,
-            content: self.content?,
-        })
+    pub fn transpose(self) -> Result<Spanned<T>, Spanned<E>> {
+        match self.content {
+            Ok(val) => Ok(Spanned::new(val, self.span)),
+            Err(err) => Err(Spanned::new(err, self.span)),
+        }
+    }
+}
+
+impl<T, E: Debug> Spanned<Result<T, E>> {
+    pub fn unwrap(self) -> Spanned<T> {
+        self.transpose().unwrap()
     }
 }
 
 impl Spanned<Vec<u8>> {
-    pub fn read_from_file(path: impl Into<PathBuf>) -> Result<Self> {
+    pub fn read_from_file(path: impl Into<PathBuf>) -> Spanned<io::Result<Vec<u8>>> {
         let path = path.into();
-        let path_str = path.display().to_string();
-        let content = std::fs::read(&path).with_context(|| path_str)?;
+        let content = std::fs::read(&path);
+        let len = content.as_ref().map(|c| c.len()).unwrap_or(0);
         let span = Span {
             file: path,
-            bytes: 0..content.len(),
+            bytes: 0..len,
         };
-        Ok(Self { span, content })
+        Spanned { span, content }
     }
 }
 
 impl Spanned<String> {
-    pub fn read_from_file(path: impl Into<PathBuf>) -> Result<Self> {
-        Ok(Spanned::<Vec<u8>>::read_from_file(path)?
-            .map(String::from_utf8)
-            .transpose()?)
+    pub fn read_str_from_file(path: impl Into<PathBuf>) -> Spanned<io::Result<String>> {
+        let path = path.into();
+        let content = std::fs::read_to_string(&path);
+        let len = content.as_ref().map(|c| c.len()).unwrap_or(0);
+        let span = Span {
+            file: path,
+            bytes: 0..len,
+        };
+        Spanned { span, content }
     }
 }
 
@@ -284,5 +408,27 @@ impl<T: AsRef<[u8]>> Spanned<T> {
                 span,
             }
         })
+    }
+}
+
+impl<S: AsRef<str>> Spanned<S> {
+    pub fn parse<T: FromStr>(&self) -> Spanned<Result<T, T::Err>> {
+        let content = self.content.as_ref().parse();
+        Spanned {
+            span: self.span.clone(),
+            content,
+        }
+    }
+}
+
+impl<T: Display> From<Spanned<T>> for anyhow::Error {
+    fn from(s: Spanned<T>) -> anyhow::Error {
+        anyhow::anyhow!("{}", s.render())
+    }
+}
+
+impl<T: Display> From<Spanned<T>> for color_eyre::eyre::Error {
+    fn from(s: Spanned<T>) -> color_eyre::eyre::Error {
+        color_eyre::eyre::eyre!("{}", s.render())
     }
 }
