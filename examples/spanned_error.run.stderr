@@ -3,9 +3,9 @@ Error: error: woosh
   |
 4 |     parse().map_err(|err| err.wrap_str(Spanned::here("woosh")))?;
   |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
-  |
- ::: examples/spanned_error.rs:9:9
-  |
+5 |     Ok(())
+...
+8 | fn parse() -> Result<(), Error> {
 9 |     Err(Error::str("kaboom"))?;
-  |         ----------------------- note: kaboom
+  |         ^^^^^^^^^^^^^^^^^^^^^^^ kaboom
   |
