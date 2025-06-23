@@ -11,3 +11,11 @@ license = "MIT OR Apache-2.0"
 anyhow = "1.0.98"
 bstr = "1.6.0"
 color-eyre = "0.6.2"
+
+[dev-dependencies]
+ctrlc = "3.4.7"
+ui_test = "0.30.1"
+
+[[test]]
+name = "ui"
+harness = false
