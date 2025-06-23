@@ -1,1 +1,1 @@
-Error: examples/spanned_err.rs[80..106]: "kaboom"
+Error: examples/spanned_err.rs:4:9: "kaboom"

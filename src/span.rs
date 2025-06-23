@@ -35,9 +35,7 @@ impl<T> std::ops::Deref for Spanned<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        std::fmt::Debug::fmt(&self.span, f)?;
-        write!(f, ": ")?;
-        self.content.fmt(f)
+        write!(f, "{}: {:?}", self.span, self.content)
     }
 }
 
@@ -145,8 +143,19 @@ impl Display for Span {
             return write!(f, "DUMMY_SPAN");
         }
         let Self { file, bytes } = self;
-        let file = file.display();
-        write!(f, "{file}[{}..{}]", bytes.start, bytes.end)
+
+        let contents = Spanned::read_str_from_file(&file).transpose().unwrap();
+        let (l, line) = contents
+            .lines()
+            .enumerate()
+            .find(|(_, l)| l.span.bytes.contains(&bytes.start))
+            .unwrap();
+        let line = line.to_str().unwrap();
+        let c = line
+            .chars()
+            .position(|c| c.span.bytes.start == bytes.start)
+            .unwrap();
+        write!(f, "{}:{}:{}", file.display(), l + 1, c + 1)
     }
 }
 
@@ -286,31 +295,6 @@ impl<'a> Spanned<&'a [u8]> {
     }
 }
 
-impl<T: Display> Spanned<T> {
-    pub fn render(&self) -> String {
-        let file = Spanned::read_str_from_file(&self.span.file)
-            .transpose()
-            .unwrap();
-        let (l, line) = file
-            .lines()
-            .enumerate()
-            .find(|(_, l)| l.span.bytes.contains(&self.span.bytes.start))
-            .unwrap();
-        let line = line.to_str().unwrap();
-        let c = line
-            .chars()
-            .position(|c| c.span.bytes.start == self.span.bytes.start)
-            .unwrap();
-        format!(
-            "{}:{}:{}: {}",
-            self.span.file.display(),
-            l + 1,
-            c + 1,
-            self.content
-        )
-    }
-}
-
 impl<T> Spanned<T> {
     pub fn new(content: T, span: Span) -> Self {
         Self { content, span }
@@ -424,13 +408,13 @@ impl<S: AsRef<str>> Spanned<S> {
 impl<T: Display> From<Spanned<T>> for anyhow::Error {
     #[track_caller]
     fn from(s: Spanned<T>) -> anyhow::Error {
-        anyhow::anyhow!("{}", s.render())
+        anyhow::anyhow!("{}: {}", s.span, s.content)
     }
 }
 
 impl<T: Display> From<Spanned<T>> for color_eyre::eyre::Error {
     #[track_caller]
     fn from(s: Spanned<T>) -> color_eyre::eyre::Error {
-        color_eyre::eyre::eyre!("{}", s.render())
+        color_eyre::eyre::eyre!("{}: {}", s.span, s.content)
     }
 }
