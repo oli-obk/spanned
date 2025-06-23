@@ -90,17 +90,25 @@ impl Span {
     #[track_caller]
     pub fn here() -> Self {
         let info = std::panic::Location::caller();
-        let file = Spanned::read_from_file(info.file()).transpose().unwrap();
-        let mut line = file.lines().nth(info.line() as usize - 1).unwrap();
-        let col = line
-            .clone()
-            .to_str()
-            .unwrap()
-            .chars()
-            .nth(info.column() as usize - 1)
-            .expect("char not found")
-            .span;
-        line.span.bytes.start = col.bytes.start;
+        let Ok(file) = Spanned::read_from_file(info.file()).transpose() else {
+            return Span {
+                file: info.file().into(),
+                bytes: 0..0,
+            };
+        };
+        let Some(mut line) = file.lines().nth(info.line() as usize - 1) else {
+            return Span {
+                file: info.file().into(),
+                bytes: 0..0,
+            };
+        };
+        let Ok(col) = line.clone().to_str() else {
+            return line.span;
+        };
+        let Some(col) = col.chars().nth(info.column() as usize - 1) else {
+            return line.span;
+        };
+        line.span.bytes.start = col.span.bytes.start;
         line.span
     }
 
@@ -288,19 +296,25 @@ impl<'a> Spanned<&'a [u8]> {
 
 impl<T: Display> Spanned<T> {
     pub fn render(&self) -> String {
-        let file = Spanned::read_str_from_file(&self.span.file)
-            .transpose()
-            .unwrap();
-        let (l, line) = file
+        let Ok(file) = Spanned::read_str_from_file(&self.span.file).transpose() else {
+            return format!("{}: {}", self.span.file.display(), self.content);
+        };
+        let Some((l, line)) = file
             .lines()
             .enumerate()
             .find(|(_, l)| l.span.bytes.contains(&self.span.bytes.start))
-            .unwrap();
-        let line = line.to_str().unwrap();
-        let c = line
+        else {
+            return format!("{}: {}", self.span.file.display(), self.content);
+        };
+        let Ok(line) = line.to_str() else {
+            return format!("{}: {}", self.span.file.display(), self.content);
+        };
+        let Some(c) = line
             .chars()
             .position(|c| c.span.bytes.start == self.span.bytes.start)
-            .unwrap();
+        else {
+            return format!("{}: {}", self.span.file.display(), self.content);
+        };
         format!(
             "{}:{}:{}: {}",
             self.span.file.display(),
