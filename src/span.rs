@@ -422,12 +422,14 @@ impl<S: AsRef<str>> Spanned<S> {
 }
 
 impl<T: Display> From<Spanned<T>> for anyhow::Error {
+    #[track_caller]
     fn from(s: Spanned<T>) -> anyhow::Error {
         anyhow::anyhow!("{}", s.render())
     }
 }
 
 impl<T: Display> From<Spanned<T>> for color_eyre::eyre::Error {
+    #[track_caller]
     fn from(s: Spanned<T>) -> color_eyre::eyre::Error {
         color_eyre::eyre::eyre!("{}", s.render())
     }
