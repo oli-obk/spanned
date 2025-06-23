@@ -1,0 +1,11 @@
+Error: error: woosh
+ --> examples/spanned_error.rs:4:40
+  |
+4 |     parse().map_err(|err| err.wrap_str(Spanned::here("woosh")))?;
+  |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+ ::: examples/spanned_error.rs:9:9
+  |
+9 |     Err(Error::str("kaboom"))?;
+  |         ----------------------- note: kaboom
+  |
