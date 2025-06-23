@@ -1,7 +1,7 @@
 Error: kawoosh
 
 Caused by:
-    error: kaboom
+    error: "kaboom"
       --> examples/eyre_output_context.rs:10:9
        |
     10 |     Err(Spanned::here("kaboom"))?;

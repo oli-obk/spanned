@@ -1,4 +1,4 @@
-Error: error: kaboom
+Error: error: "kaboom"
  --> examples/anyhow_output.rs:4:9
   |
 4 |     Err(Spanned::here("kaboom"))?;

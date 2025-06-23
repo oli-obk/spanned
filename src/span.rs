@@ -36,15 +36,9 @@ impl<T> std::ops::Deref for Spanned<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_ref().map(|c| format!("{c:?}")))
-    }
-}
-
-impl<T: std::fmt::Display> std::fmt::Display for Spanned<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let file = std::fs::read_to_string(&self.span.file).unwrap();
         let path = self.span.file.display().to_string();
-        let title = self.content.to_string();
+        let title = format!("{:?}", self.content);
         let message = Level::Error.title(&title).snippet(
             Snippet::source(&file)
                 .origin(&path)
@@ -431,16 +425,16 @@ impl<S: AsRef<str>> Spanned<S> {
     }
 }
 
-impl<T: Display> From<Spanned<T>> for anyhow::Error {
+impl<T: Debug> From<Spanned<T>> for anyhow::Error {
     #[track_caller]
     fn from(s: Spanned<T>) -> anyhow::Error {
-        anyhow::anyhow!("{s}")
+        anyhow::anyhow!("{s:?}")
     }
 }
 
-impl<T: Display> From<Spanned<T>> for color_eyre::eyre::Error {
+impl<T: Debug> From<Spanned<T>> for color_eyre::eyre::Error {
     #[track_caller]
     fn from(s: Spanned<T>) -> color_eyre::eyre::Error {
-        color_eyre::eyre::eyre!("{s}")
+        color_eyre::eyre::eyre!("{s:?}")
     }
 }
