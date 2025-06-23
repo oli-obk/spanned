@@ -36,14 +36,13 @@ impl<T> std::ops::Deref for Spanned<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let file = std::fs::read_to_string(&self.span.file).unwrap();
+        let file = std::fs::read_to_string(&self.span.file).unwrap_or_default();
         let path = self.span.file.display().to_string();
         let title = format!("{:?}", self.content);
         let message = Level::Error.title(&title).snippet(
-            Snippet::source(&file)
-                .origin(&path)
-                .fold(true)
-                .annotation(Level::Error.span(self.span.bytes.clone())),
+            Snippet::source(&file).origin(&path).fold(true).annotations(
+                (!file.is_empty()).then(|| Level::Error.span(self.span.bytes.clone())),
+            ),
         );
         let renderer = if colored::control::SHOULD_COLORIZE.should_colorize() {
             Renderer::styled()
@@ -111,17 +110,25 @@ impl Span {
     #[track_caller]
     pub fn here() -> Self {
         let info = std::panic::Location::caller();
-        let file = Spanned::read_from_file(info.file()).transpose().unwrap();
-        let mut line = file.lines().nth(info.line() as usize - 1).unwrap();
-        let col = line
-            .clone()
-            .to_str()
-            .unwrap()
-            .chars()
-            .nth(info.column() as usize - 1)
-            .expect("char not found")
-            .span;
-        line.span.bytes.start = col.bytes.start;
+        let Ok(file) = Spanned::read_from_file(info.file()).transpose() else {
+            return Span {
+                file: info.file().into(),
+                bytes: 0..0,
+            };
+        };
+        let Some(mut line) = file.lines().nth(info.line() as usize - 1) else {
+            return Span {
+                file: info.file().into(),
+                bytes: 0..0,
+            };
+        };
+        let Ok(col) = line.clone().to_str() else {
+            return line.span;
+        };
+        let Some(col) = col.chars().nth(info.column() as usize - 1) else {
+            return line.span;
+        };
+        line.span.bytes.start = col.span.bytes.start;
         line.span
     }
 
@@ -167,17 +174,22 @@ impl Display for Span {
         }
         let Self { file, bytes } = self;
 
-        let contents = Spanned::read_str_from_file(&file).transpose().unwrap();
-        let (l, line) = contents
+        let Ok(contents) = Spanned::read_str_from_file(&file).transpose() else {
+            return write!(f, "{}", file.display());
+        };
+        let Some((l, line)) = contents
             .lines()
             .enumerate()
             .find(|(_, l)| l.span.bytes.contains(&bytes.start))
-            .unwrap();
-        let line = line.to_str().unwrap();
-        let c = line
-            .chars()
-            .position(|c| c.span.bytes.start == bytes.start)
-            .unwrap();
+        else {
+            return write!(f, "{}", file.display());
+        };
+        let Ok(line) = line.to_str() else {
+            return write!(f, "{}:{}", file.display(), l + 1);
+        };
+        let Some(c) = line.chars().position(|c| c.span.bytes.start == bytes.start) else {
+            return write!(f, "{}:{}", file.display(), l + 1);
+        };
         write!(f, "{}:{}:{}", file.display(), l + 1, c + 1)
     }
 }
