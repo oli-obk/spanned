@@ -1,0 +1,4 @@
+Error: examples/eyre_output.rs:4:9: kaboom
+
+Location:
+    /home/ubuntu/crates/spanned/src/span.rs:432:9
