@@ -1,0 +1,7 @@
+Error: kawoosh
+
+Caused by:
+    examples/eyre_output_context.rs:10:9: kaboom
+
+Location:
+    examples/eyre_output_context.rs:10:5
