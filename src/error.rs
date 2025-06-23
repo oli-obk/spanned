@@ -7,13 +7,17 @@ use annotate_snippets::{Level, Renderer, Snippet};
 
 use crate::{Span, Spanned};
 
+mod context;
+
+pub use context::*;
+
 /// An error type that maintains multiple nested spans and ensures they all get printed together in one nice diagnostic message.
 pub struct Error {
-    data: Box<ErrorData<dyn std::error::Error>>,
+    data: Box<ErrorData<dyn std::error::Error + Send + Sync>>,
 }
 
 impl Error {
-    pub fn wrap<T: std::error::Error + 'static>(self, context: Spanned<T>) -> Self {
+    pub fn wrap<T: std::error::Error + Send + Sync + 'static>(self, context: Spanned<T>) -> Self {
         Self {
             data: Box::new(ErrorData {
                 span: context.span,
@@ -23,7 +27,7 @@ impl Error {
         }
     }
 
-    pub fn wrap_str<T: Display + 'static>(self, context: Spanned<T>) -> Self {
+    pub fn wrap_str<T: Display + Send + Sync + 'static>(self, context: Spanned<T>) -> Self {
         Self {
             data: Box::new(ErrorData {
                 span: context.span,
@@ -33,7 +37,7 @@ impl Error {
         }
     }
 
-    pub fn new<T: std::error::Error + 'static>(context: Spanned<T>) -> Self {
+    pub fn new<T: std::error::Error + Send + Sync + 'static>(context: Spanned<T>) -> Self {
         Self {
             data: Box::new(ErrorData {
                 span: context.span,
@@ -43,8 +47,18 @@ impl Error {
         }
     }
 
+    pub fn new_str<T: Display + Send + Sync + 'static>(context: Spanned<T>) -> Self {
+        Self {
+            data: Box::new(ErrorData {
+                span: context.span,
+                source: None,
+                data: DisplayData(context.content),
+            }),
+        }
+    }
+
     #[track_caller]
-    pub fn here<T: std::error::Error + 'static>(data: T) -> Self {
+    pub fn here<T: std::error::Error + Send + Sync + 'static>(data: T) -> Self {
         Self {
             data: Box::new(ErrorData {
                 span: Span::here(),
@@ -55,7 +69,7 @@ impl Error {
     }
 
     #[track_caller]
-    pub fn str<T: Display + 'static>(data: T) -> Self {
+    pub fn str<T: Display + Send + Sync + 'static>(data: T) -> Self {
         Self {
             data: Box::new(ErrorData {
                 span: Span::here(),
@@ -97,7 +111,7 @@ impl<T: Display + ?Sized> Debug for DisplayData<T> {
     }
 }
 
-impl<T: std::error::Error + 'static> From<Spanned<T>> for Error {
+impl<T: std::error::Error + Send + Sync + 'static> From<Spanned<T>> for Error {
     fn from(value: Spanned<T>) -> Self {
         Self {
             data: Box::new(ErrorData {
@@ -109,12 +123,15 @@ impl<T: std::error::Error + 'static> From<Spanned<T>> for Error {
     }
 }
 
-impl std::error::Error for Error {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.data
-            .source
-            .as_ref()
-            .map(|e| e as &dyn std::error::Error)
+impl<T: std::error::Error> From<T> for Error {
+    fn from(value: T) -> Self {
+        Self {
+            data: Box::new(ErrorData {
+                span: Span::here(),
+                source: None,
+                data: DisplayData(value.to_string()),
+            }),
+        }
     }
 }
 

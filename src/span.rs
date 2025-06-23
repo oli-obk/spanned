@@ -3,10 +3,12 @@ use bstr::{ByteSlice, Utf8Error};
 use std::{
     fmt::{Debug, Display},
     io,
-    ops::Range,
+    ops::{Deref, Range},
     path::PathBuf,
     str::FromStr,
 };
+
+use crate::Error;
 
 #[derive(Clone, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Spanned<T> {
@@ -366,6 +368,14 @@ impl<T> Spanned<T> {
         }
     }
 }
+impl<T: Deref> Spanned<T> {
+    pub fn as_deref(&self) -> Spanned<&T::Target> {
+        Spanned {
+            span: self.span.clone(),
+            content: &self.content,
+        }
+    }
+}
 
 impl<T, E> Spanned<Result<T, E>> {
     pub fn transpose(self) -> Result<Spanned<T>, Spanned<E>> {
@@ -428,12 +438,19 @@ impl<T: AsRef<[u8]>> Spanned<T> {
 }
 
 impl<S: AsRef<str>> Spanned<S> {
-    pub fn parse<T: FromStr>(&self) -> Spanned<Result<T, T::Err>> {
-        let content = self.content.as_ref().parse();
-        Spanned {
+    pub fn parse<T: FromStr>(&self) -> Result<Spanned<T>, Error>
+    where
+        T::Err: Display,
+    {
+        let content = self
+            .content
+            .as_ref()
+            .parse()
+            .map_err(|e: T::Err| Error::new_str(self.as_ref().map(|_| e.to_string())))?;
+        Ok(Spanned {
             span: self.span.clone(),
             content,
-        }
+        })
     }
 }
 
