@@ -1,3 +1,4 @@
+use annotate_snippets::{Level, Renderer, Snippet};
 use bstr::{ByteSlice, Utf8Error};
 use std::{
     fmt::{Debug, Display},
@@ -35,13 +36,28 @@ impl<T> std::ops::Deref for Spanned<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {:?}", self.span, self.content)
+        write!(f, "{}", self.as_ref().map(|c| format!("{c:?}")))
     }
 }
 
 impl<T: std::fmt::Display> std::fmt::Display for Spanned<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.span, self.content)
+        let file = std::fs::read_to_string(&self.span.file).unwrap();
+        let path = self.span.file.display().to_string();
+        let title = self.content.to_string();
+        let message = Level::Error.title(&title).snippet(
+            Snippet::source(&file)
+                .origin(&path)
+                .fold(true)
+                .annotation(Level::Error.span(self.span.bytes.clone())),
+        );
+        let renderer = if colored::control::SHOULD_COLORIZE.should_colorize() {
+            Renderer::styled()
+        } else {
+            Renderer::plain()
+        };
+        let res = write!(f, "{}", renderer.render(message));
+        res
     }
 }
 
@@ -337,13 +353,10 @@ impl<T> Spanned<T> {
         self.span.clone()
     }
 
-    pub fn as_ref<U: ?Sized>(&self) -> Spanned<&U>
-    where
-        T: AsRef<U>,
-    {
+    pub fn as_ref(&self) -> Spanned<&T> {
         Spanned {
             span: self.span.clone(),
-            content: self.content.as_ref(),
+            content: &self.content,
         }
     }
 }

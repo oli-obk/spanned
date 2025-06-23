@@ -1,4 +1,9 @@
-Error: examples/eyre_output.rs:4:9: kaboom
+Error: error: kaboom
+ --> examples/eyre_output.rs:4:9
+  |
+4 |     Err(Spanned::here("kaboom"))?;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
 
 Location:
     examples/eyre_output.rs:4:5

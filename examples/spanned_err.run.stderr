@@ -1,1 +1,6 @@
-Error: examples/spanned_err.rs:4:9: "kaboom"
+Error: error: "kaboom"
+ --> examples/spanned_err.rs:4:9
+  |
+4 |     Err(Spanned::here("kaboom"))?;
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
