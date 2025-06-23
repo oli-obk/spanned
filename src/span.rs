@@ -39,6 +39,12 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
     }
 }
 
+impl<T: std::fmt::Display> std::fmt::Display for Spanned<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.span, self.content)
+    }
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub struct Span {
     pub file: PathBuf,
@@ -70,9 +76,16 @@ impl PartialOrd for Span {
 
 impl std::fmt::Debug for Span {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self)
+        write!(
+            f,
+            "{}[{}..{}]",
+            self.file.display(),
+            self.bytes.start,
+            self.bytes.end
+        )
     }
 }
+
 impl Default for Span {
     #[track_caller]
     fn default() -> Self {
@@ -408,13 +421,13 @@ impl<S: AsRef<str>> Spanned<S> {
 impl<T: Display> From<Spanned<T>> for anyhow::Error {
     #[track_caller]
     fn from(s: Spanned<T>) -> anyhow::Error {
-        anyhow::anyhow!("{}: {}", s.span, s.content)
+        anyhow::anyhow!("{s}")
     }
 }
 
 impl<T: Display> From<Spanned<T>> for color_eyre::eyre::Error {
     #[track_caller]
     fn from(s: Spanned<T>) -> color_eyre::eyre::Error {
-        color_eyre::eyre::eyre!("{}: {}", s.span, s.content)
+        color_eyre::eyre::eyre!("{s}")
     }
 }
