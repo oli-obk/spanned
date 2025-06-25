@@ -42,9 +42,12 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
         let path = self.span.file.display().to_string();
         let title = format!("{:?}", self.content);
         let message = Level::Error.title(&title).snippet(
-            Snippet::source(&file).origin(&path).fold(true).annotations(
-                (!file.is_empty()).then(|| Level::Error.span(self.span.bytes.clone())),
-            ),
+            Snippet::source(&file)
+                .origin(&path)
+                .fold(true)
+                .annotations((!file.is_empty()).then(|| {
+                    Level::Error.span(self.span.bytes.start as usize..self.span.bytes.end as usize)
+                })),
         );
         let renderer = if colored::control::SHOULD_COLORIZE.should_colorize() {
             Renderer::styled()
@@ -59,7 +62,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
 #[derive(Clone, PartialEq, Eq)]
 pub struct Span {
     file: PathBuf,
-    bytes: Range<usize>,
+    bytes: Range<u32>,
 }
 
 impl Ord for Span {
@@ -90,11 +93,10 @@ impl std::fmt::Debug for Span {
 }
 
 impl Default for Span {
-    #[track_caller]
     fn default() -> Self {
         Self {
             file: PathBuf::new(),
-            bytes: usize::MAX..usize::MAX,
+            bytes: u32::MAX..u32::MAX,
         }
     }
 }
@@ -127,25 +129,28 @@ impl Span {
     }
 
     pub fn is_dummy(&self) -> bool {
-        self.bytes.start == usize::MAX && self.bytes.end == usize::MAX
+        self.bytes.start == u32::MAX && self.bytes.end == u32::MAX
     }
+
     #[track_caller]
     pub fn dec_col_end(mut self, amount: usize) -> Self {
-        let new = self.bytes.end - amount;
+        let new = self.bytes.end - u32::try_from(amount).unwrap();
         assert!(self.bytes.start <= new, "{self} new end: {new}");
         self.bytes.end = new;
         self
     }
+
     #[track_caller]
     pub fn inc_col_start(mut self, amount: usize) -> Self {
-        let new = self.bytes.start + amount;
+        let new = self.bytes.start + u32::try_from(amount).unwrap();
         assert!(new <= self.bytes.end, "{self} new end: {new}");
         self.bytes.start = new;
         self
     }
+
     #[track_caller]
     pub fn set_col_end_relative_to_start(mut self, amount: usize) -> Self {
-        let new = self.bytes.start + amount;
+        let new = self.bytes.start + u32::try_from(amount).unwrap();
         assert!(new <= self.bytes.end, "{self} new end: {new}");
         self.bytes.end = new;
         self
@@ -165,10 +170,11 @@ impl Span {
     }
 
     pub fn bytes(&self) -> Range<usize> {
-        self.bytes.clone()
+        self.bytes.start as usize..self.bytes.end as usize
     }
 
     pub(crate) fn new(path: &Path, bytes: Range<usize>) -> Self {
+        let bytes = u32::try_from(bytes.start).unwrap()..u32::try_from(bytes.end).unwrap();
         Self {
             file: path.to_path_buf(),
             bytes,
@@ -403,7 +409,12 @@ impl Spanned<Vec<u8>> {
     pub fn read_from_file(path: impl Into<PathBuf>) -> Spanned<io::Result<Vec<u8>>> {
         let path = path.into();
         let content = std::fs::read(&path);
-        let len = content.as_ref().map(|c| c.len()).unwrap_or(0);
+        let len = content
+            .as_ref()
+            .map(|c| c.len())
+            .unwrap_or(0)
+            .try_into()
+            .expect("`spanned` does not support files larger than 4GB");
         let span = Span {
             file: path,
             bytes: 0..len,
@@ -416,7 +427,12 @@ impl Spanned<String> {
     pub fn read_str_from_file(path: impl Into<PathBuf>) -> Spanned<io::Result<String>> {
         let path = path.into();
         let content = std::fs::read_to_string(&path);
-        let len = content.as_ref().map(|c| c.len()).unwrap_or(0);
+        let len = content
+            .as_ref()
+            .map(|c| c.len())
+            .unwrap_or(0)
+            .try_into()
+            .expect("`spanned` does not support files larger than 4GB");
         let span = Span {
             file: path,
             bytes: 0..len,
@@ -435,7 +451,9 @@ impl<T: AsRef<[u8]>> Spanned<T> {
             // trivially satisfied.
             let amount = unsafe { line.as_ptr().offset_from(content.as_ptr()) };
             let mut span = span.inc_col_start(amount.try_into().unwrap());
-            span.bytes.end = span.bytes.start + line.len();
+            span.bytes.end = span.bytes.start
+                + u32::try_from(line.len())
+                    .expect("`spanned` does not support files larger than 4GB");
             Spanned {
                 content: line,
                 span,
