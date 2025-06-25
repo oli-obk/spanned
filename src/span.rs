@@ -6,6 +6,7 @@ use std::{
     ops::{Deref, Range},
     path::{Path, PathBuf},
     str::FromStr,
+    sync::Arc,
 };
 
 use crate::Error;
@@ -38,7 +39,7 @@ impl<T> std::ops::Deref for Spanned<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let file = std::fs::read_to_string(&self.span.file).unwrap_or_default();
+        let file = std::fs::read_to_string(&*self.span.file).unwrap_or_default();
         let path = self.span.file.display().to_string();
         let title = format!("{:?}", self.content);
         let message = Level::Error.title(&title).snippet(
@@ -61,7 +62,7 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Span {
-    file: PathBuf,
+    file: Arc<PathBuf>,
     bytes: Range<u32>,
 }
 
@@ -95,7 +96,7 @@ impl std::fmt::Debug for Span {
 impl Default for Span {
     fn default() -> Self {
         Self {
-            file: PathBuf::new(),
+            file: Default::default(),
             bytes: u32::MAX..u32::MAX,
         }
     }
@@ -108,13 +109,13 @@ impl Span {
         let info = std::panic::Location::caller();
         let Ok(file) = Spanned::read_from_file(info.file()).transpose() else {
             return Span {
-                file: info.file().into(),
+                file: Arc::new(info.file().into()),
                 bytes: 0..0,
             };
         };
         let Some(mut line) = file.lines().nth(info.line() as usize - 1) else {
             return Span {
-                file: info.file().into(),
+                file: Arc::new(info.file().into()),
                 bytes: 0..0,
             };
         };
@@ -176,7 +177,7 @@ impl Span {
     pub(crate) fn new(path: &Path, bytes: Range<usize>) -> Self {
         let bytes = u32::try_from(bytes.start).unwrap()..u32::try_from(bytes.end).unwrap();
         Self {
-            file: path.to_path_buf(),
+            file: Arc::new(path.to_path_buf()),
             bytes,
         }
     }
@@ -184,12 +185,12 @@ impl Span {
 
 impl Display for Span {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.file == PathBuf::new() {
+        if *self.file == Path::new("") {
             return write!(f, "DUMMY_SPAN");
         }
         let Self { file, bytes } = self;
 
-        let Ok(contents) = Spanned::read_str_from_file(file).transpose() else {
+        let Ok(contents) = Spanned::read_str_from_file(&**file).transpose() else {
             return write!(f, "{}", file.display());
         };
         let Some((l, line)) = contents
@@ -416,7 +417,7 @@ impl Spanned<Vec<u8>> {
             .try_into()
             .expect("`spanned` does not support files larger than 4GB");
         let span = Span {
-            file: path,
+            file: path.into(),
             bytes: 0..len,
         };
         Spanned { span, content }
@@ -434,7 +435,7 @@ impl Spanned<String> {
             .try_into()
             .expect("`spanned` does not support files larger than 4GB");
         let span = Span {
-            file: path,
+            file: path.into(),
             bytes: 0..len,
         };
         Spanned { span, content }
