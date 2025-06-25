@@ -31,14 +31,7 @@ impl<T, E: std::error::Error + Send + Sync + 'static> Context<T> for Result<T, E
         msg: U,
     ) -> Result<T, Error> {
         self.map_err(|e| {
-            Error::new_str(Spanned::new(
-                msg,
-                Span {
-                    file: path.to_path_buf(),
-                    bytes: 0..0,
-                },
-            ))
-            .wrap(Spanned::here(e))
+            Error::new_str(Spanned::new(msg, Span::new(path, 0..0))).wrap(Spanned::here(e))
         })
     }
     #[track_caller]

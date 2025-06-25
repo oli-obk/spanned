@@ -4,7 +4,7 @@ use std::{
     fmt::{Debug, Display},
     io,
     ops::{Deref, Range},
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
 };
 
@@ -58,8 +58,8 @@ impl<T: std::fmt::Debug> std::fmt::Debug for Spanned<T> {
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Span {
-    pub file: PathBuf,
-    pub bytes: Range<usize>,
+    file: PathBuf,
+    bytes: Range<usize>,
 }
 
 impl Ord for Span {
@@ -158,6 +158,21 @@ impl Span {
     pub fn shrink_to_start(mut self) -> Span {
         self.bytes.end = self.bytes.start;
         self
+    }
+
+    pub fn file(&self) -> &Path {
+        &self.file
+    }
+
+    pub fn bytes(&self) -> Range<usize> {
+        self.bytes.clone()
+    }
+
+    pub(crate) fn new(path: &Path, bytes: Range<usize>) -> Self {
+        Self {
+            file: path.to_path_buf(),
+            bytes,
+        }
     }
 }
 

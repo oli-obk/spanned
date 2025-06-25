@@ -151,31 +151,31 @@ impl Debug for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut files = HashMap::new();
         files.insert(
-            &self.data.span.file,
+            self.data.span.file(),
             (
-                std::fs::read_to_string(&self.data.span.file).unwrap_or_default(),
-                self.data.span.file.display().to_string(),
+                std::fs::read_to_string(&self.data.span.file()).unwrap_or_default(),
+                self.data.span.file().display().to_string(),
                 vec![],
             ),
         );
         for e in self.sources() {
-            let (_, _, list) = files.entry(&e.data.span.file).or_insert_with(|| {
+            let (_, _, list) = files.entry(&e.data.span.file()).or_insert_with(|| {
                 (
-                    std::fs::read_to_string(&e.data.span.file).unwrap_or_default(),
-                    e.data.span.file.display().to_string(),
+                    std::fs::read_to_string(&e.data.span.file()).unwrap_or_default(),
+                    e.data.span.file().display().to_string(),
                     vec![],
                 )
             });
-            list.push((e.data.span.bytes.clone(), e.data.data.to_string()))
+            list.push((e.data.span.bytes(), e.data.data.to_string()))
         }
 
         let title = self.data.data.to_string();
-        let (main_file, main_path, main_labels) = &files[&self.data.span.file];
+        let (main_file, main_path, main_labels) = &files[&self.data.span.file()];
         let message = Level::Error.title(&title).snippets(
             [Snippet::source(main_file)
                 .origin(main_path)
                 .fold(true)
-                .annotation(Level::Error.span(self.data.span.bytes.clone()))
+                .annotation(Level::Error.span(self.data.span.bytes()))
                 .annotations(
                     main_labels
                         .iter()
@@ -183,7 +183,7 @@ impl Debug for Error {
                 )]
             .into_iter()
             .chain(self.sources().filter_map(|e| {
-                let (file, path, labels) = &files[&e.data.span.file];
+                let (file, path, labels) = &files[e.data.span.file()];
                 if path == main_path {
                     return None;
                 }
