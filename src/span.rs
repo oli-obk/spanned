@@ -73,15 +73,7 @@ impl Ord for Span {
 
 impl PartialOrd for Span {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match self.file.partial_cmp(&other.file) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        match self.bytes.start.partial_cmp(&other.bytes.start) {
-            Some(core::cmp::Ordering::Equal) => {}
-            ord => return ord,
-        }
-        self.bytes.end.partial_cmp(&other.bytes.end)
+        Some(self.cmp(other))
     }
 }
 
@@ -176,7 +168,7 @@ impl Display for Span {
         }
         let Self { file, bytes } = self;
 
-        let Ok(contents) = Spanned::read_str_from_file(&file).transpose() else {
+        let Ok(contents) = Spanned::read_str_from_file(file).transpose() else {
             return write!(f, "{}", file.display());
         };
         let Some((l, line)) = contents
