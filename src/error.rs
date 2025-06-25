@@ -153,7 +153,7 @@ impl Debug for Error {
         files.insert(
             &self.data.span.file,
             (
-                std::fs::read_to_string(&self.data.span.file).unwrap(),
+                std::fs::read_to_string(&self.data.span.file).unwrap_or_default(),
                 self.data.span.file.display().to_string(),
                 vec![],
             ),
@@ -161,7 +161,7 @@ impl Debug for Error {
         for e in self.sources() {
             let (_, _, list) = files.entry(&e.data.span.file).or_insert_with(|| {
                 (
-                    std::fs::read_to_string(&e.data.span.file).unwrap(),
+                    std::fs::read_to_string(&e.data.span.file).unwrap_or_default(),
                     e.data.span.file.display().to_string(),
                     vec![],
                 )
